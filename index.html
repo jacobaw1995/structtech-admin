@@ -356,11 +356,16 @@ function renderClientDetail(){
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="sys-name" placeholder="System name" style="flex:1;min-width:130px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
       '<button class="btn btn-o" onclick="addSystem()">ADD</button></div><div style="margin-top:10px">';
     d.systems.forEach(function(s){
-      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px">' +
+      html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
         '<span style="flex:1"><b>'+esc(s.name)+'</b></span>' +
         '<select onchange="updSystem(\''+s.id+'\',{status:this.value})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
         ['planned','in_build','training','live','maintenance'].map(function(st){ return '<option value="'+st+'"'+(s.status===st?' selected':'')+'>'+st.replace('_',' ').toUpperCase()+'</option>'; }).join('') +
-        '</select><button class="del" onclick="delRow(\'org_systems\',\''+s.id+'\')">✕</button></div>';
+        '</select><button class="del" onclick="delRow(\'org_systems\',\''+s.id+'\')">✕</button></div>' +
+        '<div style="display:flex;gap:6px;margin-top:6px">' +
+        '<input value="'+esc(s.url||'')+'" placeholder="https://... (link the client opens)" onchange="updSystem(\''+s.id+'\',{url:this.value.trim()||null})" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:'+(s.url?'var(--blue)':'var(--muted)')+';font-family:var(--mono);font-size:10.5px;padding:6px 8px;outline:none">' +
+        '<input value="'+esc(s.description||'')+'" placeholder="Short description shown to client" onchange="updSystem(\''+s.id+'\',{description:this.value.trim()||null})" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-size:11px;padding:6px 8px;outline:none">' +
+        '</div></div>';
     });
     html += '</div></div></div>';
 
