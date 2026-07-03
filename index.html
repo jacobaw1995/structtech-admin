@@ -182,10 +182,9 @@
 <div class="shell">
   <div class="side">
     <div class="logo">STRUCTTECH <span>/</span> OS</div>
-    <button class="nav-item on" id="nav-scans" onclick="showView('scans')">📥 Scans</button>
-    <button class="nav-item" id="nav-roadmaps" onclick="showView('roadmaps')">🗺️ Roadmaps</button>
     <button class="nav-item" id="nav-pipeline" onclick="showView('pipeline')">📈 Pipeline</button>
     <button class="nav-item" id="nav-clients" onclick="showView('clients')">🤝 Clients</button>
+    <button class="nav-item" id="nav-scans" onclick="showView('scans')">📥 Scans</button>
     <button class="nav-item soon">⚡ Automation <span class="tag">SOON</span></button>
     <button class="nav-item" style="margin-top:20px" onclick="logout()">🔒 Lock</button>
   </div>
@@ -209,7 +208,7 @@ var Q_LABELS = { q1:'Lead Response', q2:'Estimate Follow-Up', q3:'Field-to-Offic
   q5:'Tool Fragmentation', q6:'Key Person Risk', q7:'Invoice Speed', q8:'Crew Scheduling',
   q9:'Client Communication', q10:'Owner Dependency' };
 
-var scans = [], roadmaps = [], deals = [], view = 'scans', editing = null;
+var scans = [], roadmaps = [], deals = [], view = 'pipeline', editing = null, editorFrom = 'pipeline';
 
 var STAGES = [
   { key:'new_scan',      label:'NEW SCAN' },
@@ -254,7 +253,7 @@ function findRoadmapForLead(lead){ return roadmaps.find(function(r){ return r.le
 /* ================= VIEWS ================= */
 function showView(v){ view=v; editing=null; render(); }
 function render(){
-  ['scans','roadmaps','pipeline'].forEach(function(v){ var el=document.getElementById('nav-'+v); if(el) el.classList.toggle('on', view===v); });
+  ['scans','pipeline','clients'].forEach(function(v){ var el=document.getElementById('nav-'+v); if(el) el.classList.toggle('on', view===v); });
   if (view==='scans') renderScans();
   else if (view==='scan-detail') renderScanDetail();
   else if (view==='roadmaps') renderRoadmaps();
@@ -326,9 +325,14 @@ function renderClientDetail(){
   ]).then(function(res){
     orgData = { invites:res[0]||[], members:res[1]||[], systems:res[2]||[], invoices:res[3]||[], tickets:res[4]||[], rms:res[5]||[] };
     var d = orgData;
+    var orgDeal = o.deal_id ? deals.find(function(x){ return x.id === o.deal_id; }) : null;
+    var orgLead = orgDeal && orgDeal.lead_id ? scans.find(function(s){ return s.id === orgDeal.lead_id; }) : null;
     var html = '<button class="back" onclick="showView(\'clients\')">← ALL CLIENTS</button>' +
       '<div class="detail-hd"><div class="who"><h2>'+esc(o.name)+'</h2><div class="sub2">'+esc(o.trade||'')+' · '+d.members.length+' user(s) · '+(d.rms.length?'roadmap linked':'NO ROADMAP LINKED')+'</div></div><div class="spacer"></div>' +
-      (d.rms.length ? '' : '<button class="btn btn-g" onclick="linkRoadmap()">LINK ROADMAP</button>') +
+      (orgLead ? '<button class="btn btn-g" onclick="openScan(\''+orgLead.id+'\')">VIEW SCAN</button>' : '') +
+      (d.rms.length ? '<button class="btn btn-o" onclick="editorFrom=\'client-detail\';openEditor(\''+d.rms[0].id+'\')">OPEN ROADMAP →</button>'
+                    : '<button class="btn btn-g" onclick="linkRoadmap()">LINK ROADMAP</button>') +
+      (orgDeal ? '<button class="btn btn-g" onclick="showView(\'pipeline\');openDeal(\''+orgDeal.id+'\')">VIEW DEAL</button>' : '') +
       '</div>';
 
     // INVITES + MEMBERS
@@ -365,11 +369,17 @@ function renderClientDetail(){
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
       '<input id="bi-label" placeholder="Label (e.g. Level 1 build)" style="flex:2;min-width:140px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
       '<input id="bi-amount" type="number" placeholder="$" style="width:90px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
+      '<input id="bi-due" type="date" title="Due date" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--gray);font-family:var(--mono);font-size:11px;padding:7px 9px;outline:none">' +
       '<select id="bi-kind" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px"><option value="invoice">INVOICE (DUE)</option><option value="upcoming">UPCOMING PHASE</option></select>' +
       '<button class="btn btn-o" onclick="addInvoice()">ADD</button></div><div style="margin-top:10px">';
     d.invoices.forEach(function(i){
+      var overdue = i.kind==='invoice' && i.status==='due' && i.due_date && new Date(i.due_date) < new Date();
       html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px">' +
-        '<span style="flex:1">'+esc(i.label)+'</span><b style="color:var(--green)">$'+i.amount.toLocaleString()+'</b>' +
+        '<span style="flex:1">'+esc(i.label)+
+        (i.due_date ? ' <span style="font-family:var(--mono);font-size:9px;color:'+(overdue?'var(--red)':'var(--muted)')+'">'+(i.kind==='upcoming'?'EST ':'DUE ')+fmtDate(i.due_date)+(overdue?' ⚠ OVERDUE':'')+'</span>' : '')+
+        '</span>' +
+        '<input type="date" value="'+(i.due_date||'')+'" onchange="updRow(\'org_invoices\',\''+i.id+'\',{due_date:this.value||null})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:4px 6px;outline:none">' +
+        '<b style="color:var(--green)">$'+i.amount.toLocaleString()+'</b>' +
         (i.kind==='upcoming' ? '<span class="pill blue">UPCOMING</span>'
           : '<select onchange="updRow(\'org_invoices\',\''+i.id+'\',{status:this.value'+(0?'':'')+'})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
             ['due','paid','void'].map(function(st){ return '<option value="'+st+'"'+(i.status===st?' selected':'')+'>'+st.toUpperCase()+'</option>'; }).join('') + '</select>') +
@@ -434,7 +444,9 @@ function addInvoice(){
   var amount = parseInt(document.getElementById('bi-amount').value);
   if (!label || !amount) return;
   fetch(SUPA_URL + '/rest/v1/org_invoices', { method:'POST', headers:H(),
-    body: JSON.stringify({ org_id: currentOrg.id, label: label, amount: amount, kind: document.getElementById('bi-kind').value }) })
+    body: JSON.stringify({ org_id: currentOrg.id, label: label, amount: amount,
+      kind: document.getElementById('bi-kind').value,
+      due_date: document.getElementById('bi-due').value || null }) })
   .then(function(){ toast('✓ ADDED'); renderClientDetail(); });
 }
 function updTicket(id, status){
@@ -738,11 +750,12 @@ function renderRoadmaps(filter){
 }
 
 /* ---- ROADMAP EDITOR ---- */
-function openEditor(id){ editing = JSON.parse(JSON.stringify(roadmaps.find(function(r){return r.id===id;}))); view='rm-edit'; render(); }
+function openEditor(id){ if (view!=='rm-edit') editorFrom = view; editing = JSON.parse(JSON.stringify(roadmaps.find(function(r){return r.id===id;}))); view='rm-edit'; render(); }
+function backFromEditor(){ editing=null; view = editorFrom || 'pipeline'; render(); }
 function renderEditor(){
   var r = editing; var st = rmStats(r);
   var clientUrl = ROADMAP_BASE + '?c=' + r.token;
-  var html = '<button class="back" onclick="showView(\'roadmaps\')">← ALL ROADMAPS</button>' +
+  var html = '<button class="back" onclick="backFromEditor()">← BACK</button>' +
     '<div class="detail-hd"><div class="who"><h2>'+esc(r.client_name)+' — '+esc(r.company)+'</h2>' +
     '<div class="sub2">'+st.d+'/'+st.t+' milestones · '+st.pct+'% · '+esc(r.trade||'')+'</div></div><div class="spacer"></div>' +
     '<button class="btn btn-g" onclick="copyText(\''+clientUrl+'\',this)">COPY CLIENT LINK</button>' +
@@ -864,7 +877,7 @@ function regenRoadmap(){
 function archiveRoadmap(){
   if(!confirm('Archive this roadmap? It disappears from the list (data kept).')) return;
   fetch(SUPA_URL + '/rest/v1/client_roadmaps?id=eq.'+editing.id, { method:'PATCH', headers:H(), body: JSON.stringify({ status:'archived' }) })
-  .then(function(){ var idx=roadmaps.findIndex(function(r){return r.id===editing.id;}); if(idx>-1) roadmaps[idx].status='archived'; showView('roadmaps'); toast('ARCHIVED'); });
+  .then(function(){ var idx=roadmaps.findIndex(function(r){return r.id===editing.id;}); if(idx>-1) roadmaps[idx].status='archived'; backFromEditor(); toast('ARCHIVED'); });
 }
 function copyText(t, el){ navigator.clipboard.writeText(t); var o=el.textContent; el.textContent='✓ COPIED'; setTimeout(function(){el.textContent=o;},1400); }
 
