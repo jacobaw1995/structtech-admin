@@ -8,7 +8,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PptxGenJS/3.12.0/pptxgen.bundle.js"></script>
   <style>
-    :root { --bg:#0a0f1e; --card:#111827; --card2:#0f172a; --border:#1e293b; --orange:#f97316;
+    :root { --orange-dim:rgba(249,115,22,0.12); --green-dim:rgba(34,197,94,0.12);
+      --bg:#0a0f1e; --card:#111827; --card2:#0f172a; --border:#1e293b; --orange:#f97316;
       --orange-hl:#fb923c; --orange-dim:rgba(249,115,22,0.12); --blue:#3b82f6; --green:#22c55e;
       --green-dim:rgba(34,197,94,0.12); --red:#ef4444; --white:#f8fafc; --gray:#94a3b8; --muted:#64748b;
       --mono:'DM Mono',monospace; --head:'Bebas Neue',sans-serif; --body:'DM Sans',sans-serif; }
@@ -123,6 +124,40 @@
     .toast { position:fixed; bottom:20px; right:20px; background:var(--card); border:1px solid var(--green); color:var(--green);
       font-family:var(--mono); font-size:12px; padding:11px 20px; border-radius:99px; transform:translateY(90px); transition:transform .3s; z-index:60; }
     .toast.show { transform:translateY(0); }
+
+    /* ---- PIPELINE KANBAN ---- */
+    .kb { display:flex; gap:12px; overflow-x:auto; padding-bottom:20px; align-items:flex-start; }
+    .kb-col { flex:0 0 240px; background:var(--card2); border:1px solid var(--border); border-radius:12px; min-height:200px; }
+    .kb-col.dragover { border-color:var(--orange); }
+    .kb-col-hd { padding:12px 14px 8px; font-family:var(--mono); font-size:10px; letter-spacing:0.1em; color:var(--gray); display:flex; justify-content:space-between; }
+    .kb-col-hd b { color:var(--orange); font-weight:500; }
+    .kb-cards { padding:6px 8px 12px; display:flex; flex-direction:column; gap:8px; min-height:60px; }
+    .kb-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:11px 12px; cursor:grab; }
+    .kb-card:hover { border-color:var(--gray); }
+    .kb-card .co { font-size:13px; font-weight:700; }
+    .kb-card .who { font-size:11px; color:var(--gray); margin-top:1px; }
+    .kb-card .meta { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-family:var(--mono); font-size:10px; }
+    .kb-card .val { color:var(--green); }
+    .kb-card .age { color:var(--muted); }
+    .kb-closed { display:flex; gap:10px; margin-top:6px; flex-wrap:wrap; }
+
+    /* deal panel */
+    .dp-wrap { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:70; display:none; }
+    .dp { position:absolute; top:0; right:0; bottom:0; width:420px; max-width:92vw; background:var(--card); border-left:1px solid var(--border); overflow-y:auto; padding:20px; }
+    .dp h2 { font-size:18px; }
+    .dp .sub { font-family:var(--mono); font-size:11px; color:var(--gray); margin:3px 0 14px; }
+    .dp label { display:block; font-family:var(--mono); font-size:9px; letter-spacing:0.1em; color:var(--muted); margin:12px 0 4px; }
+    .dp select, .dp input, .dp textarea { width:100%; background:var(--card2); border:1px solid var(--border); border-radius:8px;
+      color:var(--white); font-family:var(--body); font-size:13px; padding:9px 11px; outline:none; }
+    .dp .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .dp .links { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+    .note-item { background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:9px 11px; font-size:12.5px; margin-bottom:7px; }
+    .note-item .nt { font-family:var(--mono); font-size:9px; color:var(--muted); margin-top:4px; }
+    .fu-item { display:flex; align-items:center; gap:8px; font-size:12px; padding:7px 0; border-bottom:1px solid var(--border); }
+    .fu-item .st { font-family:var(--mono); font-size:9px; padding:2px 7px; border-radius:99px; }
+    .fu-item .st.pending { background:var(--orange-dim); color:var(--orange); }
+    .fu-item .st.sent { background:var(--green-dim); color:var(--green); }
+    .fu-item .st.cancelled { background:var(--card2); color:var(--muted); }
   </style>
 </head>
 <body>
@@ -145,7 +180,7 @@
     <div class="logo">STRUCTTECH <span>/</span> OS</div>
     <button class="nav-item on" id="nav-scans" onclick="showView('scans')">📥 Scans</button>
     <button class="nav-item" id="nav-roadmaps" onclick="showView('roadmaps')">🗺️ Roadmaps</button>
-    <button class="nav-item soon">📈 Pipeline <span class="tag">SOON</span></button>
+    <button class="nav-item" id="nav-pipeline" onclick="showView('pipeline')">📈 Pipeline</button>
     <button class="nav-item soon">⚡ Automation <span class="tag">SOON</span></button>
     <button class="nav-item" style="margin-top:20px" onclick="logout()">🔒 Lock</button>
   </div>
@@ -169,7 +204,16 @@ var Q_LABELS = { q1:'Lead Response', q2:'Estimate Follow-Up', q3:'Field-to-Offic
   q5:'Tool Fragmentation', q6:'Key Person Risk', q7:'Invoice Speed', q8:'Crew Scheduling',
   q9:'Client Communication', q10:'Owner Dependency' };
 
-var scans = [], roadmaps = [], view = 'scans', editing = null;
+var scans = [], roadmaps = [], deals = [], view = 'scans', editing = null;
+
+var STAGES = [
+  { key:'new_scan',      label:'NEW SCAN' },
+  { key:'contacted',     label:'CONTACTED' },
+  { key:'call_booked',   label:'CALL BOOKED' },
+  { key:'call_done',     label:'CALL DONE' },
+  { key:'proposal_sent', label:'PROPOSAL SENT' },
+  { key:'negotiating',   label:'NEGOTIATING' }
+];
 
 /* ================= AUTH ================= */
 function sha256(s){ return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
@@ -190,8 +234,9 @@ function boot(){
   document.getElementById('app').style.display = 'block';
   Promise.all([
     fetch(SUPA_URL + '/rest/v1/audit_leads?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
-    fetch(SUPA_URL + '/rest/v1/client_roadmaps?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); })
-  ]).then(function(res){ scans = res[0]||[]; roadmaps = res[1]||[]; render(); });
+    fetch(SUPA_URL + '/rest/v1/client_roadmaps?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/deals?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); })
+  ]).then(function(res){ scans = res[0]||[]; roadmaps = res[1]||[]; deals = Array.isArray(res[2])?res[2]:[]; render(); });
 }
 function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg||'✓ SAVED'; t.classList.add('show'); setTimeout(function(){t.classList.remove('show');},1700); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
@@ -204,11 +249,154 @@ function findRoadmapForLead(lead){ return roadmaps.find(function(r){ return r.le
 /* ================= VIEWS ================= */
 function showView(v){ view=v; editing=null; render(); }
 function render(){
-  ['scans','roadmaps'].forEach(function(v){ document.getElementById('nav-'+v).classList.toggle('on', view===v); });
+  ['scans','roadmaps','pipeline'].forEach(function(v){ var el=document.getElementById('nav-'+v); if(el) el.classList.toggle('on', view===v); });
   if (view==='scans') renderScans();
   else if (view==='scan-detail') renderScanDetail();
   else if (view==='roadmaps') renderRoadmaps();
   else if (view==='rm-edit') renderEditor();
+  else if (view==='pipeline') renderPipeline();
+}
+
+/* ================= PIPELINE ================= */
+function dealAge(d){ var days = Math.floor((Date.now() - new Date(d.updated_at||d.created_at)) / 86400000); return days === 0 ? 'today' : days + 'd'; }
+
+function renderPipeline(){
+  var open = deals.filter(function(d){ return d.stage !== 'closed_won' && d.stage !== 'closed_lost'; });
+  var won  = deals.filter(function(d){ return d.stage === 'closed_won'; });
+  var lost = deals.filter(function(d){ return d.stage === 'closed_lost'; });
+  var pipeVal = open.reduce(function(a,d){ return a + (d.value||0); }, 0);
+  var wonVal  = won.reduce(function(a,d){ return a + (d.value||0); }, 0);
+
+  var html = '<div class="page-title">PIPELINE</div><div class="page-sub">STRUCTTECH SALES — SCAN TO SIGNED CLIENT</div>' +
+    '<div class="stats">' +
+    '<div class="stat"><div class="n">'+open.length+'</div><div class="l">OPEN DEALS</div></div>' +
+    '<div class="stat"><div class="n">$'+pipeVal.toLocaleString()+'</div><div class="l">PIPELINE VALUE</div></div>' +
+    '<div class="stat"><div class="n">'+won.length+'</div><div class="l">CLIENTS WON</div></div>' +
+    '<div class="stat"><div class="n">$'+wonVal.toLocaleString()+'</div><div class="l">WON VALUE</div></div></div>';
+
+  html += '<div class="kb">';
+  STAGES.forEach(function(s){
+    var cards = open.filter(function(d){ return d.stage === s.key; });
+    html += '<div class="kb-col" ondragover="event.preventDefault();this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="dropDeal(event,\''+s.key+'\',this)">' +
+      '<div class="kb-col-hd"><span>'+s.label+'</span><b>'+cards.length+'</b></div><div class="kb-cards">';
+    cards.forEach(function(d){
+      html += '<div class="kb-card" draggable="true" ondragstart="event.dataTransfer.setData(\'text\',\''+d.id+'\')" onclick="openDeal(\''+d.id+'\')">' +
+        '<div class="co">'+esc(d.company||d.contact_name)+'</div>' +
+        '<div class="who">'+esc(d.contact_name)+(d.trade?' · '+esc(d.trade):'')+'</div>' +
+        '<div class="meta"><span class="val">'+(d.value?'$'+d.value.toLocaleString():'—')+'</span><span class="age">'+dealAge(d)+'</span></div></div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+
+  html += '<div class="kb-closed">' +
+    won.map(function(d){ return '<span class="pill low" style="cursor:pointer" onclick="openDeal(\''+d.id+'\')">✓ '+esc(d.company||d.contact_name)+'</span>'; }).join('') +
+    lost.map(function(d){ return '<span class="pill crit" style="cursor:pointer" onclick="openDeal(\''+d.id+'\')">✕ '+esc(d.company||d.contact_name)+'</span>'; }).join('') +
+    '</div>';
+
+  html += '<div class="dp-wrap" id="dpWrap" onclick="if(event.target===this)closeDeal()"><div class="dp" id="dpBody"></div></div>';
+  document.getElementById('main').innerHTML = html;
+}
+
+function dropDeal(ev, stage, col){
+  col.classList.remove('dragover');
+  var id = ev.dataTransfer.getData('text');
+  var d = deals.find(function(x){ return x.id === id; });
+  if (!d || d.stage === stage) return;
+  setStage(d, stage);
+}
+
+function setStage(d, stage, lostReason){
+  var body = { stage: stage };
+  if (lostReason) body.lost_reason = lostReason;
+  fetch(SUPA_URL + '/rest/v1/deals?id=eq.'+d.id, { method:'PATCH', headers:H(), body: JSON.stringify(body) })
+    .then(function(r){
+      if (!r.ok) { toast('⚠ FAILED'); return; }
+      d.stage = stage; if (lostReason) d.lost_reason = lostReason;
+      d.updated_at = new Date().toISOString();
+      toast('✓ ' + stage.replace(/_/g,' ').toUpperCase());
+      renderPipeline();
+    });
+}
+
+var openDealId = null;
+function openDeal(id){
+  openDealId = id;
+  var d = deals.find(function(x){ return x.id === id; });
+  var lead = d.lead_id ? scans.find(function(s){ return s.id === d.lead_id; }) : null;
+  var rm = d.lead_id ? roadmaps.find(function(r){ return r.lead_id === d.lead_id && r.status !== 'archived'; }) : null;
+
+  var html = '<h2>'+esc(d.company||d.contact_name)+'</h2>' +
+    '<div class="sub">'+esc(d.contact_name)+(d.trade?' · '+esc(d.trade):'')+(d.crew_size?' · '+d.crew_size+' crew':'')+'</div>' +
+    (d.email?'<div style="font-size:12px;color:var(--gray)">'+esc(d.email)+'</div>':'') +
+    '<div class="row2"><div><label>STAGE</label><select onchange="panelStage(this.value)">' +
+    STAGES.map(function(s){ return '<option value="'+s.key+'"'+(d.stage===s.key?' selected':'')+'>'+s.label+'</option>'; }).join('') +
+    '<option value="closed_won"'+(d.stage==='closed_won'?' selected':'')+'>✓ CLOSED WON</option>' +
+    '<option value="closed_lost"'+(d.stage==='closed_lost'?' selected':'')+'>✕ CLOSED LOST</option></select></div>' +
+    '<div><label>DEAL VALUE ($)</label><input type="number" value="'+(d.value||'')+'" onchange="panelValue(this.value)"></div></div>';
+
+  if (d.stage === 'closed_lost' && d.lost_reason) html += '<label>LOST REASON</label><div style="font-size:12px;color:var(--gray)">'+esc(d.lost_reason)+'</div>';
+
+  html += '<div class="links">' +
+    (lead ? '<button class="btn btn-g" onclick="closeDeal();openScan(\''+lead.id+'\')">VIEW SCAN</button>' : '') +
+    (rm ? '<button class="btn btn-g" onclick="closeDeal();openEditor(\''+rm.id+'\')">VIEW ROADMAP</button>' : '') +
+    '</div>';
+
+  html += '<label>FOLLOW-UP SEQUENCE</label><div id="dpFu" class="muted" style="font-size:12px">Loading…</div>';
+  html += '<label>ADD NOTE</label><textarea id="dpNote" rows="2" placeholder="What happened?"></textarea>' +
+    '<button class="btn btn-o" style="margin-top:8px;width:100%" onclick="addDealNote()">SAVE NOTE</button>' +
+    '<label>NOTES</label><div id="dpNotes" class="muted" style="font-size:12px">Loading…</div>';
+
+  document.getElementById('dpBody').innerHTML = html;
+  document.getElementById('dpWrap').style.display = 'block';
+
+  fetch(SUPA_URL + '/rest/v1/follow_ups?deal_id=eq.'+id+'&order=send_at.asc', { headers:H() })
+    .then(function(r){ return r.json(); }).then(function(fus){
+      var el = document.getElementById('dpFu'); if (!el) return;
+      if (!fus.length) { el.textContent = 'None scheduled.'; return; }
+      el.innerHTML = fus.map(function(f){
+        var dte = new Date(f.send_at);
+        return '<div class="fu-item"><span class="st '+f.status+'">'+f.status.toUpperCase()+'</span>' +
+          '<span style="flex:1">'+esc(f.subject)+'</span>' +
+          '<span class="muted" style="font-family:var(--mono);font-size:10px">'+(dte.getMonth()+1)+'/'+dte.getDate()+'</span>' +
+          (f.status==='pending' ? '<button class="del" onclick="cancelFu(\''+f.id+'\')">✕</button>' : '') + '</div>';
+      }).join('');
+    });
+
+  fetch(SUPA_URL + '/rest/v1/deal_notes?deal_id=eq.'+id+'&order=created_at.desc', { headers:H() })
+    .then(function(r){ return r.json(); }).then(function(ns){
+      var el = document.getElementById('dpNotes'); if (!el) return;
+      el.innerHTML = ns.length ? ns.map(function(n){
+        var dte = new Date(n.created_at);
+        return '<div class="note-item">'+esc(n.content)+'<div class="nt">'+(dte.getMonth()+1)+'/'+dte.getDate()+' '+String(dte.getHours()).padStart(2,'0')+':'+String(dte.getMinutes()).padStart(2,'0')+'</div></div>';
+      }).join('') : 'No notes yet.';
+    });
+}
+function closeDeal(){ var w=document.getElementById('dpWrap'); if(w) w.style.display='none'; openDealId=null; }
+function panelStage(stage){
+  var d = deals.find(function(x){ return x.id === openDealId; });
+  if (stage === 'closed_lost') {
+    var reason = prompt('Why was this lost? (required)');
+    if (!reason) { openDeal(d.id); return; }
+    setStage(d, stage, reason);
+  } else setStage(d, stage);
+  openDeal(d.id);
+}
+function panelValue(v){
+  var d = deals.find(function(x){ return x.id === openDealId; });
+  var val = parseInt(v) || null;
+  fetch(SUPA_URL + '/rest/v1/deals?id=eq.'+d.id, { method:'PATCH', headers:H(), body: JSON.stringify({ value: val }) })
+    .then(function(r){ if (r.ok) { d.value = val; toast('✓ VALUE SET'); } });
+}
+function addDealNote(){
+  var txt = document.getElementById('dpNote').value.trim();
+  if (!txt) return;
+  fetch(SUPA_URL + '/rest/v1/deal_notes', { method:'POST', headers:H(), body: JSON.stringify({ deal_id: openDealId, content: txt }) })
+    .then(function(r){ if (r.ok) { toast('✓ NOTE SAVED'); openDeal(openDealId); } });
+}
+function cancelFu(id){
+  fetch(SUPA_URL + '/rest/v1/follow_ups?id=eq.'+id, { method:'PATCH', headers:H(), body: JSON.stringify({ status:'cancelled' }) })
+    .then(function(r){ if (r.ok) { toast('CANCELLED'); openDeal(openDealId); } });
 }
 
 /* ---- SCANS LIST ---- */
