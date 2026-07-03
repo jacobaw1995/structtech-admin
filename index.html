@@ -116,6 +116,10 @@
       font-family:var(--mono); font-size:10px; padding:8px 6px; width:118px; flex-shrink:0; }
     .m-edit .del { background:none; border:none; color:var(--muted); font-size:16px; padding:2px 4px; }
     .m-edit .del:hover { color:var(--red); }
+    .m-edit .win-t { background:none; border:none; font-size:15px; padding:2px 4px; opacity:0.22; filter:grayscale(1); }
+    .m-edit .win-t:hover { opacity:0.7; filter:none; }
+    .m-edit .win-t.set { opacity:1; filter:none; }
+    .m-edit .win-t.derived { opacity:0.55; filter:none; }
     .mini-add { background:none; border:1px dashed var(--border); color:var(--muted); width:100%; border-radius:8px;
       padding:8px; font-family:var(--mono); font-size:10px; letter-spacing:0.1em; margin-top:10px; }
     .mini-add:hover { color:var(--orange); border-color:var(--orange); }
@@ -757,13 +761,16 @@ function renderEditor(){
       (li<r.levels.length-1?'<button class="btn btn-g" onclick="moveLvl('+li+',1)">↓</button>':'') +
       '<button class="btn btn-g" style="color:var(--red)" onclick="delLvl('+li+')">✕</button></div>' +
       '<textarea oninput="editing.levels['+li+'].why=this.value" placeholder="Why this matters…">'+esc(lvl.why||'')+'</textarea>';
+    var wIdx = editorWinIndex(lvl);
     (lvl.milestones||[]).forEach(function(m, mi){
+      var winCls = m.win ? 'set' : (mi === wIdx ? 'derived' : '');
       html += '<div class="m-edit">' +
         '<button class="done-t '+(m.done?'y':'')+'" onclick="tgl('+li+','+mi+',this)">✓</button>' +
         '<input value="'+esc(m.label)+'" oninput="editing.levels['+li+'].milestones['+mi+'].label=this.value">' +
         '<select onchange="editing.levels['+li+'].milestones['+mi+'].owner=this.value">' +
         '<option value="jacob"'+(m.owner!=='client'?' selected':'')+'>STRUCTTECH</option>' +
         '<option value="client"'+(m.owner==='client'?' selected':'')+'>CLIENT</option></select>' +
+        '<button class="win-t '+winCls+'" title="'+(m.win?'WIN CONDITION (click to unset)':(mi===wIdx?'Current win condition (auto) — click to lock it':'Set as WIN CONDITION'))+'" onclick="setWin('+li+','+mi+')">🏆</button>' +
         '<button class="del" onclick="delMile('+li+','+mi+')">✕</button></div>';
     });
     html += '<button class="mini-add" onclick="addMile('+li+')">+ MILESTONE</button></div>';
@@ -775,6 +782,19 @@ function renderEditor(){
   document.getElementById('main').innerHTML = html;
 }
 function tgl(li,mi,el){ var m=editing.levels[li].milestones[mi]; m.done=!m.done; m.done_at=m.done?new Date().toISOString():null; el.classList.toggle('y',m.done); }
+/* WIN CONDITION: same rule the client page uses — explicit flag, else last client-owned milestone */
+function editorWinIndex(lvl){
+  for (var i=0;i<lvl.milestones.length;i++) if (lvl.milestones[i].win) return i;
+  for (var i=lvl.milestones.length-1;i>=0;i--) if (lvl.milestones[i].owner==='client') return i;
+  return -1;
+}
+function setWin(li,mi){
+  var ms = editing.levels[li].milestones;
+  var was = ms[mi].win;
+  ms.forEach(function(m){ delete m.win; });
+  if (!was) ms[mi].win = true;   // toggle: clicking the set one reverts to auto
+  render();
+}
 function delMile(li,mi){ editing.levels[li].milestones.splice(mi,1); render(); }
 function addMile(li){ editing.levels[li].milestones.push({ id:'l'+li+'m'+Date.now(), label:'', owner:'jacob', done:false, done_at:null }); render(); }
 function delLvl(li){ if(confirm('Delete this level?')){ editing.levels.splice(li,1); render(); } }
