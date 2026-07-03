@@ -1,16 +1,22 @@
-# STRUCTTECH ROADMAP PLAYBOOK — v2 DRAFT FOR MARKUP
+# STRUCTTECH ROADMAP PLAYBOOK — v3 (LOCKED)
 
-Every focus area follows the same 5-stage arc:
+Every focus area follows a 4-stage arc:
 
 | Stage | Owner | What it is |
 |---|---|---|
-| **ASSESS** | StructTech | Map what the client already does in this area — what works, what leaks, what tools/habits exist |
-| **BUILD** | StructTech | The custom system, built around how their crew already works |
-| **ADOPT** | Client | The 2–3 specific behaviors that make the system real (your "3 pillars" pattern) |
-| **PROVE** | Client | A measurable milestone that shows it stuck |
-| **TRAIN & HANDOFF** | StructTech | Document it, train the team, system runs without Jacob in the loop |
+| **STRATEGIZE & BUILD** | StructTech | Map what the client already does, then build the custom system around it |
+| **ADOPT** | Client | The 2-3 behaviors that make the system real |
+| **PROVE** | Client | A measurable milestone, calibrated to crew size |
+| **TRAIN & HANDOFF** | StructTech | Document, train the team, system runs without Jacob |
 
-Mark up anything below — reword, delete, add. When you're done I push it to the database and every future scan auto-generates from it.
+## v3 decisions (from Jacob's markup)
+1. ASSESS collapsed into STRATEGIZE & BUILD — one StructTech milestone per level
+2. q1+q2 both 0-2 -> merged "Sales Pipeline System" level (systemic fix, not symptoms)
+3. Material Ordering added as q11 playbook entry (scan question: PENDING — needs scoring rework in funnel)
+4. PROVE thresholds calibrated by crew size: 1-4 crew = 1 week / 3 jobs; 5-9 = 2 weeks / 5 jobs; 10+ = 3 weeks / 8 jobs
+
+**Source of truth for milestones: `playbook_v3.sql`** (run in Supabase SQL Editor to deploy).
+The sections below are the v2 draft kept for reference.
 
 ---
 
