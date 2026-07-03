@@ -321,7 +321,10 @@ function renderEditor(){
     '<button class="btn btn-g" onclick="copyText(\''+clientUrl+'\',this)">COPY CLIENT LINK</button>' +
     '<button class="btn btn-g" onclick="exportPDF()">⬇ PDF</button>' +
     '<button class="btn btn-g" onclick="exportPPTX()">⬇ PPTX</button>' +
-    '</div>';
+    (r.lead_id ? '<button class="btn btn-g" onclick="regenRoadmap()">↺ REGENERATE</button>' : '') +
+    '<button class="btn btn-g" onclick="toggleHistory()">🕘 HISTORY</button>' +
+    '</div>' +
+    '<div id="histPanel" style="display:none" class="panel"><h3>EDIT HISTORY — SNAPSHOTS SAVED BEFORE EACH CHANGE</h3><div id="histList"></div></div>';
 
   (r.levels||[]).forEach(function(lvl, li){
     html += '<div class="lvl-edit">' +
@@ -355,14 +358,65 @@ function delLvl(li){ if(confirm('Delete this level?')){ editing.levels.splice(li
 function addLvl(){ editing.levels.push({ title:'', why:'', milestones:[{ id:'m'+Date.now(), label:'', owner:'jacob', done:false, done_at:null }] }); render(); }
 function moveLvl(li,dir){ var l=editing.levels.splice(li,1)[0]; editing.levels.splice(li+dir,0,l); render(); }
 function saveRoadmap(){
+  // snapshot current DB state into history before overwriting (keep 15)
+  var current = roadmaps.find(function(r){return r.id===editing.id;});
+  var hist = (current && current.history) ? current.history.slice(0,14) : [];
+  hist.unshift({ ts: new Date().toISOString(), levels: current ? current.levels : editing.levels });
   fetch(SUPA_URL + '/rest/v1/client_roadmaps?id=eq.'+editing.id, { method:'PATCH', headers:H(),
-    body: JSON.stringify({ levels: editing.levels, status: editing.status||'active' }) })
+    body: JSON.stringify({ levels: editing.levels, status: editing.status||'active', history: hist }) })
   .then(function(res){
     if(!res.ok) { toast('⚠ SAVE FAILED'); return; }
     var idx = roadmaps.findIndex(function(r){return r.id===editing.id;});
-    if(idx>-1) roadmaps[idx].levels = editing.levels;
+    if(idx>-1){ roadmaps[idx].levels = JSON.parse(JSON.stringify(editing.levels)); roadmaps[idx].history = hist; editing.history = hist; }
     toast('✓ SAVED');
   });
+}
+
+/* ---- HISTORY ---- */
+function toggleHistory(){
+  var p = document.getElementById('histPanel');
+  if (p.style.display === 'none') { p.style.display = 'block'; renderHistory(); }
+  else p.style.display = 'none';
+}
+function renderHistory(){
+  var hist = editing.history || [];
+  var el = document.getElementById('histList');
+  if (!hist.length) { el.innerHTML = '<div class="muted" style="font-size:13px">No snapshots yet — one is saved automatically every time you hit SAVE CHANGES.</div>'; return; }
+  el.innerHTML = hist.map(function(h, i){
+    var d = new Date(h.ts);
+    var when = (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    var nLvl = (h.levels||[]).length, nMs = 0, nDone = 0;
+    (h.levels||[]).forEach(function(l){ (l.milestones||[]).forEach(function(m){ nMs++; if(m.done) nDone++; }); });
+    return '<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">' +
+      '<span class="muted" style="font-family:var(--mono);font-size:11px;width:88px">'+when+'</span>' +
+      '<span style="flex:1;color:var(--gray)">'+nLvl+' levels · '+nDone+'/'+nMs+' done</span>' +
+      '<button class="btn btn-g" onclick="restoreSnap('+i+')">RESTORE</button></div>';
+  }).join('');
+}
+function restoreSnap(i){
+  if(!confirm('Restore this snapshot? Your current unsaved edits are replaced (the current DB state gets snapshotted too, so nothing is lost).')) return;
+  editing.levels = JSON.parse(JSON.stringify(editing.history[i].levels));
+  render();
+  saveRoadmap();
+}
+
+/* ---- REGENERATE ---- */
+function regenRoadmap(){
+  if(!confirm('Regenerate this roadmap fresh from the scan data using the playbook?\n\nThe current version is ARCHIVED (not deleted) and a new roadmap with a NEW client link is created.')) return;
+  fetch(SUPA_URL + '/rest/v1/client_roadmaps?id=eq.'+editing.id, { method:'PATCH', headers:H(), body: JSON.stringify({ status:'archived' }) })
+  .then(function(){ return fetch(SUPA_URL + '/rest/v1/rpc/generate_roadmap_for_lead', { method:'POST', headers:H(), body: JSON.stringify({ p_lead_id: editing.lead_id }) }); })
+  .then(function(r){ return r.json(); })
+  .then(function(newToken){
+    return fetch(SUPA_URL + '/rest/v1/client_roadmaps?select=*&order=created_at.desc', { headers:H() })
+      .then(function(r){ return r.json(); })
+      .then(function(rm){
+        roadmaps = rm || [];
+        var fresh = roadmaps.find(function(x){ return x.token === newToken; });
+        toast('✓ REGENERATED');
+        if (fresh) openEditor(fresh.id); else showView('roadmaps');
+      });
+  })
+  .catch(function(){ toast('⚠ REGEN FAILED'); });
 }
 function archiveRoadmap(){
   if(!confirm('Archive this roadmap? It disappears from the list (data kept).')) return;
