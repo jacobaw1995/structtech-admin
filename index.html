@@ -181,6 +181,7 @@
     <button class="nav-item on" id="nav-scans" onclick="showView('scans')">📥 Scans</button>
     <button class="nav-item" id="nav-roadmaps" onclick="showView('roadmaps')">🗺️ Roadmaps</button>
     <button class="nav-item" id="nav-pipeline" onclick="showView('pipeline')">📈 Pipeline</button>
+    <button class="nav-item" id="nav-clients" onclick="showView('clients')">🤝 Clients</button>
     <button class="nav-item soon">⚡ Automation <span class="tag">SOON</span></button>
     <button class="nav-item" style="margin-top:20px" onclick="logout()">🔒 Lock</button>
   </div>
@@ -255,6 +256,194 @@ function render(){
   else if (view==='roadmaps') renderRoadmaps();
   else if (view==='rm-edit') renderEditor();
   else if (view==='pipeline') renderPipeline();
+  else if (view==='clients') renderClients();
+  else if (view==='client-detail') renderClientDetail();
+}
+
+/* ================= CLIENTS ================= */
+var PORTAL_BASE = 'https://portal.structtek.com';
+var orgs = [], currentOrg = null, orgData = {};
+
+function renderClients(){
+  document.getElementById('main').innerHTML = '<div class="page-title">CLIENTS</div><div class="page-sub">CLIENT BUSINESSES — PORTAL ACCESS, SYSTEMS, BILLING, REQUESTS</div><div class="empty">Loading…</div>';
+  Promise.all([
+    fetch(SUPA_URL + '/rest/v1/organizations?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/org_members?select=org_id', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/tickets?select=org_id,status', { headers:H() }).then(function(r){ return r.json(); })
+  ]).then(function(res){
+    orgs = res[0]||[];
+    var members = res[1]||[], tks = res[2]||[];
+    var html = '<div class="page-title">CLIENTS</div><div class="page-sub">CLIENT BUSINESSES — PORTAL ACCESS, SYSTEMS, BILLING, REQUESTS</div>' +
+      '<div class="panel"><h3>NEW CLIENT BUSINESS</h3><div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<input id="no-name" placeholder="Business name" style="flex:2;min-width:180px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:13px;padding:9px 11px;outline:none">' +
+      '<input id="no-trade" placeholder="Trade" style="flex:1;min-width:110px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:13px;padding:9px 11px;outline:none">' +
+      '<button class="btn btn-o" onclick="createOrg()">CREATE →</button></div></div>';
+    if (!orgs.length) html += '<div class="empty">No client businesses yet. Create the first one above.</div>';
+    else {
+      html += '<table><tr><th>BUSINESS</th><th>TRADE</th><th>USERS</th><th>OPEN REQUESTS</th><th>CREATED</th></tr>';
+      orgs.forEach(function(o){
+        var mc = members.filter(function(m){ return m.org_id===o.id; }).length;
+        var tc = tks.filter(function(t){ return t.org_id===o.id && ['open','in_progress'].indexOf(t.status)>-1; }).length;
+        html += '<tr class="row" onclick="openOrg(\''+o.id+'\')"><td><b>'+esc(o.name)+'</b></td><td class="muted">'+esc(o.trade||'—')+'</td>' +
+          '<td>'+mc+'</td><td>'+(tc?'<span class="pill high">'+tc+'</span>':'<span class="muted">0</span>')+'</td>' +
+          '<td class="muted">'+fmtDate(o.created_at)+'</td></tr>';
+      });
+      html += '</table>';
+    }
+    document.getElementById('main').innerHTML = html;
+  });
+}
+
+function createOrg(){
+  var name = document.getElementById('no-name').value.trim();
+  if (!name) return;
+  fetch(SUPA_URL + '/rest/v1/organizations', { method:'POST', headers:Object.assign(H(),{'Prefer':'return=representation'}),
+    body: JSON.stringify({ name:name, trade:document.getElementById('no-trade').value.trim()||null }) })
+  .then(function(r){ return r.json(); })
+  .then(function(rows){ toast('✓ CLIENT CREATED'); openOrg(rows[0].id); });
+}
+
+function openOrg(id){
+  currentOrg = orgs.find(function(o){ return o.id===id; });
+  view = 'client-detail';
+  render();
+}
+
+function renderClientDetail(){
+  var o = currentOrg;
+  document.getElementById('main').innerHTML = '<button class="back" onclick="showView(\'clients\')">← ALL CLIENTS</button><div class="empty">Loading…</div>';
+  Promise.all([
+    fetch(SUPA_URL + '/rest/v1/org_invites?org_id=eq.'+o.id+'&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/org_members?org_id=eq.'+o.id, { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/org_systems?org_id=eq.'+o.id+'&order=sort', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/org_invoices?org_id=eq.'+o.id+'&order=created_at', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/tickets?org_id=eq.'+o.id+'&order=updated_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/client_roadmaps?org_id=eq.'+o.id+'&status=eq.active&select=id,token,client_name', { headers:H() }).then(function(r){ return r.json(); })
+  ]).then(function(res){
+    orgData = { invites:res[0]||[], members:res[1]||[], systems:res[2]||[], invoices:res[3]||[], tickets:res[4]||[], rms:res[5]||[] };
+    var d = orgData;
+    var html = '<button class="back" onclick="showView(\'clients\')">← ALL CLIENTS</button>' +
+      '<div class="detail-hd"><div class="who"><h2>'+esc(o.name)+'</h2><div class="sub2">'+esc(o.trade||'')+' · '+d.members.length+' user(s) · '+(d.rms.length?'roadmap linked':'NO ROADMAP LINKED')+'</div></div><div class="spacer"></div>' +
+      (d.rms.length ? '' : '<button class="btn btn-g" onclick="linkRoadmap()">LINK ROADMAP</button>') +
+      '</div>';
+
+    // INVITES + MEMBERS
+    html += '<div class="grid2"><div class="panel"><h3>PORTAL ACCESS — INVITE USERS</h3>' +
+      '<div style="display:flex;gap:8px"><input id="inv-email" placeholder="their@email.com" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:13px;padding:9px 11px;outline:none">' +
+      '<select id="inv-role" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--gray);font-family:var(--mono);font-size:11px;padding:8px"><option value="owner">OWNER</option><option value="member">MEMBER</option></select>' +
+      '<button class="btn btn-o" onclick="createInvite()">INVITE</button></div><div style="margin-top:12px">';
+    d.invites.forEach(function(i){
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+        '<span style="flex:1">'+esc(i.email)+' <span class="muted" style="font-family:var(--mono);font-size:9px">'+i.role.toUpperCase()+'</span></span>' +
+        (i.accepted_at ? '<span class="pill low">JOINED</span>'
+          : '<span class="pill high">PENDING</span><button class="btn btn-g" onclick="copyText(\''+PORTAL_BASE+'/?invite='+i.token+'\',this)">COPY LINK</button>') + '</div>';
+    });
+    d.members.forEach(function(m){
+      html += '<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">👤 '+esc(m.full_name||'(no name)')+' <span class="muted" style="font-family:var(--mono);font-size:9px">'+m.role.toUpperCase()+' · ACTIVE</span></div>';
+    });
+    html += '</div></div>';
+
+    // SYSTEMS
+    html += '<div class="panel"><h3>SYSTEMS (STATUS BOARD)</h3>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="sys-name" placeholder="System name" style="flex:1;min-width:130px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
+      '<button class="btn btn-o" onclick="addSystem()">ADD</button></div><div style="margin-top:10px">';
+    d.systems.forEach(function(s){
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px">' +
+        '<span style="flex:1"><b>'+esc(s.name)+'</b></span>' +
+        '<select onchange="updSystem(\''+s.id+'\',{status:this.value})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
+        ['planned','in_build','training','live','maintenance'].map(function(st){ return '<option value="'+st+'"'+(s.status===st?' selected':'')+'>'+st.replace('_',' ').toUpperCase()+'</option>'; }).join('') +
+        '</select><button class="del" onclick="delRow(\'org_systems\',\''+s.id+'\')">✕</button></div>';
+    });
+    html += '</div></div></div>';
+
+    // INVOICES
+    html += '<div class="grid2"><div class="panel"><h3>BILLING</h3>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      '<input id="bi-label" placeholder="Label (e.g. Level 1 build)" style="flex:2;min-width:140px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
+      '<input id="bi-amount" type="number" placeholder="$" style="width:90px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
+      '<select id="bi-kind" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px"><option value="invoice">INVOICE (DUE)</option><option value="upcoming">UPCOMING PHASE</option></select>' +
+      '<button class="btn btn-o" onclick="addInvoice()">ADD</button></div><div style="margin-top:10px">';
+    d.invoices.forEach(function(i){
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px">' +
+        '<span style="flex:1">'+esc(i.label)+'</span><b style="color:var(--green)">$'+i.amount.toLocaleString()+'</b>' +
+        (i.kind==='upcoming' ? '<span class="pill blue">UPCOMING</span>'
+          : '<select onchange="updRow(\'org_invoices\',\''+i.id+'\',{status:this.value'+(0?'':'')+'})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
+            ['due','paid','void'].map(function(st){ return '<option value="'+st+'"'+(i.status===st?' selected':'')+'>'+st.toUpperCase()+'</option>'; }).join('') + '</select>') +
+        '<button class="del" onclick="delRow(\'org_invoices\',\''+i.id+'\')">✕</button></div>';
+    });
+    html += '</div></div>';
+
+    // TICKETS
+    html += '<div class="panel"><h3>REQUESTS FROM CLIENT</h3>';
+    if (!d.tickets.length) html += '<div class="muted" style="font-size:12px">None yet.</div>';
+    d.tickets.forEach(function(t){
+      html += '<div style="padding:8px 0;border-bottom:1px solid var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:8px;font-size:13px"><b style="flex:1">'+esc(t.title)+'</b>' +
+        '<select onchange="updTicket(\''+t.id+'\',this.value)" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
+        ['open','in_progress','waiting_client','resolved','closed'].map(function(st){ return '<option value="'+st+'"'+(t.status===st?' selected':'')+'>'+st.replace(/_/g,' ').toUpperCase()+'</option>'; }).join('') + '</select></div>' +
+        '<div style="display:flex;gap:6px;margin-top:6px"><input id="tr-'+t.id+'" placeholder="Reply as StructTech…" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:7px 10px;outline:none">' +
+        '<button class="btn btn-g" onclick="replyTicket(\''+t.id+'\')">SEND</button></div></div>';
+    });
+    html += '</div></div>';
+
+    document.getElementById('main').innerHTML = html;
+  });
+}
+
+function createInvite(){
+  var email = document.getElementById('inv-email').value.trim();
+  if (!email || email.indexOf('@')<0) { toast('⚠ NEED VALID EMAIL'); return; }
+  fetch(SUPA_URL + '/rest/v1/org_invites', { method:'POST', headers:Object.assign(H(),{'Prefer':'return=representation'}),
+    body: JSON.stringify({ org_id: currentOrg.id, email: email, role: document.getElementById('inv-role').value }) })
+  .then(function(r){ return r.json(); })
+  .then(function(rows){
+    var link = PORTAL_BASE + '/?invite=' + rows[0].token;
+    navigator.clipboard.writeText(link);
+    toast('✓ INVITE CREATED — LINK COPIED');
+    renderClientDetail();
+  });
+}
+function linkRoadmap(){
+  var tok = prompt('Paste the roadmap token (from the roadmap URL after ?c=):');
+  if (!tok) return;
+  fetch(SUPA_URL + '/rest/v1/client_roadmaps?token=eq.'+tok.trim(), { method:'PATCH', headers:H(), body: JSON.stringify({ org_id: currentOrg.id }) })
+  .then(function(r){ if(r.ok){ toast('✓ ROADMAP LINKED'); renderClientDetail(); } else toast('⚠ FAILED'); });
+}
+function addSystem(){
+  var name = document.getElementById('sys-name').value.trim();
+  if (!name) return;
+  fetch(SUPA_URL + '/rest/v1/org_systems', { method:'POST', headers:H(), body: JSON.stringify({ org_id: currentOrg.id, name: name, status:'in_build' }) })
+  .then(function(){ toast('✓ ADDED'); renderClientDetail(); });
+}
+function updSystem(id, body){ updRow('org_systems', id, body); }
+function updRow(table, id, body){
+  fetch(SUPA_URL + '/rest/v1/'+table+'?id=eq.'+id, { method:'PATCH', headers:H(), body: JSON.stringify(body) })
+  .then(function(r){ toast(r.ok?'✓ SAVED':'⚠ FAILED'); });
+}
+function delRow(table, id){
+  if (!confirm('Delete this item?')) return;
+  fetch(SUPA_URL + '/rest/v1/'+table+'?id=eq.'+id, { method:'DELETE', headers:H() })
+  .then(function(){ toast('DELETED'); renderClientDetail(); });
+}
+function addInvoice(){
+  var label = document.getElementById('bi-label').value.trim();
+  var amount = parseInt(document.getElementById('bi-amount').value);
+  if (!label || !amount) return;
+  fetch(SUPA_URL + '/rest/v1/org_invoices', { method:'POST', headers:H(),
+    body: JSON.stringify({ org_id: currentOrg.id, label: label, amount: amount, kind: document.getElementById('bi-kind').value }) })
+  .then(function(){ toast('✓ ADDED'); renderClientDetail(); });
+}
+function updTicket(id, status){
+  fetch(SUPA_URL + '/rest/v1/tickets?id=eq.'+id, { method:'PATCH', headers:H(), body: JSON.stringify({ status: status, updated_at: new Date().toISOString() }) })
+  .then(function(r){ toast(r.ok?'✓ STATUS SET':'⚠ FAILED'); });
+}
+function replyTicket(id){
+  var el = document.getElementById('tr-'+id);
+  var txt = el.value.trim();
+  if (!txt) return;
+  fetch(SUPA_URL + '/rest/v1/ticket_messages', { method:'POST', headers:H(),
+    body: JSON.stringify({ ticket_id: id, author_name: 'Jacob — StructTech', is_structtech: true, content: txt }) })
+  .then(function(r){ if(r.ok){ el.value=''; toast('✓ SENT'); } });
 }
 
 /* ================= PIPELINE ================= */
