@@ -529,7 +529,8 @@ function openDeal(id){
   html += '<div class="links">' +
     (lead ? '<button class="btn btn-g" onclick="closeDeal();openScan(\''+lead.id+'\')">VIEW SCAN</button>' : '') +
     (rm ? '<button class="btn btn-g" onclick="closeDeal();openEditor(\''+rm.id+'\')">VIEW ROADMAP</button>' : '') +
-    '</div>';
+    '</div>' +
+    '<label>CLIENT PORTAL</label><div id="dpPortal" class="muted" style="font-size:12px">Checking…</div>';
 
   html += '<label>FOLLOW-UP SEQUENCE</label><div id="dpFu" class="muted" style="font-size:12px">Loading…</div>';
   html += '<label>ADD NOTE</label><textarea id="dpNote" rows="2" placeholder="What happened?"></textarea>' +
@@ -538,6 +539,18 @@ function openDeal(id){
 
   document.getElementById('dpBody').innerHTML = html;
   document.getElementById('dpWrap').style.display = 'block';
+
+  // portal status for this deal
+  fetch(SUPA_URL + '/rest/v1/organizations?deal_id=eq.'+id+'&select=id,name', { headers:H() })
+    .then(function(r){ return r.json(); }).then(function(os){
+      var el = document.getElementById('dpPortal'); if (!el) return;
+      if (os.length) {
+        el.innerHTML = '<span class="pill low">PORTAL ACTIVE</span> <button class="btn btn-g" onclick="closeDeal();jumpToOrg(\''+os[0].id+'\')">MANAGE CLIENT →</button>';
+      } else {
+        el.innerHTML = '<button class="btn btn-o" onclick="createPortalFromDeal()">⚡ CREATE CLIENT PORTAL</button>' +
+          '<div class="muted" style="font-size:11px;margin-top:6px">Creates the business, links their roadmap, and copies an owner invite link for ' + esc(d.email||'their email') + '.</div>';
+      }
+    });
 
   fetch(SUPA_URL + '/rest/v1/follow_ups?deal_id=eq.'+id+'&order=send_at.asc', { headers:H() })
     .then(function(r){ return r.json(); }).then(function(fus){
@@ -586,6 +599,39 @@ function addDealNote(){
 function cancelFu(id){
   fetch(SUPA_URL + '/rest/v1/follow_ups?id=eq.'+id, { method:'PATCH', headers:H(), body: JSON.stringify({ status:'cancelled' }) })
     .then(function(r){ if (r.ok) { toast('CANCELLED'); openDeal(openDealId); } });
+}
+function jumpToOrg(orgId){
+  fetch(SUPA_URL + '/rest/v1/organizations?select=*&order=created_at.desc', { headers:H() })
+    .then(function(r){ return r.json(); })
+    .then(function(os){ orgs = os||[]; openOrg(orgId); });
+}
+function createPortalFromDeal(){
+  var d = deals.find(function(x){ return x.id === openDealId; });
+  if (!d.email || d.email.indexOf('@') < 0) { toast('⚠ DEAL HAS NO VALID EMAIL'); return; }
+  var orgId = null;
+  // 1. create the business (linked to this deal)
+  fetch(SUPA_URL + '/rest/v1/organizations', { method:'POST', headers:Object.assign(H(),{'Prefer':'return=representation'}),
+    body: JSON.stringify({ name: d.company || d.contact_name, trade: d.trade, deal_id: d.id }) })
+  .then(function(r){ return r.json(); })
+  .then(function(rows){
+    orgId = rows[0].id;
+    // 2. link their roadmap (via the scan behind this deal)
+    var linkRm = d.lead_id
+      ? fetch(SUPA_URL + '/rest/v1/client_roadmaps?lead_id=eq.'+d.lead_id+'&status=eq.active', { method:'PATCH', headers:H(), body: JSON.stringify({ org_id: orgId }) })
+      : Promise.resolve();
+    // 3. create the owner invite
+    var inv = fetch(SUPA_URL + '/rest/v1/org_invites', { method:'POST', headers:Object.assign(H(),{'Prefer':'return=representation'}),
+      body: JSON.stringify({ org_id: orgId, email: d.email, role: 'owner' }) }).then(function(r){ return r.json(); });
+    return Promise.all([linkRm, inv]);
+  })
+  .then(function(res){
+    var invite = res[1][0];
+    var link = PORTAL_BASE + '/?invite=' + invite.token;
+    navigator.clipboard.writeText(link);
+    toast('✓ PORTAL CREATED — INVITE LINK COPIED');
+    openDeal(openDealId);
+  })
+  .catch(function(){ toast('⚠ PORTAL CREATE FAILED'); });
 }
 
 /* ---- SCANS LIST ---- */
