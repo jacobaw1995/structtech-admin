@@ -198,6 +198,7 @@
     <button class="nav-item" id="nav-pipeline" onclick="showView('pipeline')">📈 Pipeline</button>
     <button class="nav-item" id="nav-clients" onclick="showView('clients')">🤝 Clients</button>
     <button class="nav-item" id="nav-scans" onclick="showView('scans')">📥 Scans</button>
+    <button class="nav-item" id="nav-settings" onclick="showView('settings')">⚙️ Settings</button>
     <button class="nav-item soon">⚡ Automation <span class="tag">SOON</span></button>
     <button class="nav-item" style="margin-top:20px" onclick="logout()">🔒 Lock</button>
   </div>
@@ -232,7 +233,7 @@ var STAGES = [
 /* ================= AUTH ================= */
 var params = new URLSearchParams(location.search);
 var INVITE = params.get('invite');
-var STAFF_TOKEN = null;
+var STAFF_TOKEN = null, STAFF_ID = null;
 
 function gateBox(inner){ document.querySelector('#gate .gate-box').innerHTML =
   '<h1>STRUCTTECH <span>/</span> OS</h1><p>ADMIN PORTAL</p>' + inner; }
@@ -248,6 +249,7 @@ async function initAuth(){
   var chk = await sb.from('staff_users').select('user_id').eq('user_id', s.data.session.user.id).maybeSingle();
   if (!chk.data) return renderNotStaff();
   STAFF_TOKEN = s.data.session.access_token;
+  STAFF_ID = s.data.session.user.id;
   boot();
 }
 sb.auth.onAuthStateChange(function(event, session){ if (session) STAFF_TOKEN = session.access_token; });
@@ -309,7 +311,7 @@ function findRoadmapForLead(lead){ return roadmaps.find(function(r){ return r.le
 /* ================= VIEWS ================= */
 function showView(v){ view=v; editing=null; render(); }
 function render(){
-  ['scans','pipeline','clients'].forEach(function(v){ var el=document.getElementById('nav-'+v); if(el) el.classList.toggle('on', view===v); });
+  ['scans','pipeline','clients','settings'].forEach(function(v){ var el=document.getElementById('nav-'+v); if(el) el.classList.toggle('on', view===v); });
   if (view==='scans') renderScans();
   else if (view==='scan-detail') renderScanDetail();
   else if (view==='roadmaps') renderRoadmaps();
@@ -317,6 +319,60 @@ function render(){
   else if (view==='pipeline') renderPipeline();
   else if (view==='clients') renderClients();
   else if (view==='client-detail') renderClientDetail();
+  else if (view==='settings') renderSettings();
+}
+
+/* ================= SETTINGS ================= */
+function renderSettings(){
+  document.getElementById('main').innerHTML = '<div class="page-title">SETTINGS</div><div class="page-sub">ADMIN CONTROLS</div><div class="empty">Loading…</div>';
+  Promise.all([
+    fetch(SUPA_URL + '/rest/v1/staff_users?select=*&order=created_at.asc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/staff_invites?select=*&order=created_at.desc', { headers:H() }).then(function(r){ return r.json(); })
+  ]).then(function(res){
+    var staff = res[0]||[], invites = (res[1]||[]).filter(function(i){ return !i.accepted_at; });
+    var html = '<div class="page-title">SETTINGS</div><div class="page-sub">ADMIN CONTROLS</div>' +
+      '<div class="panel"><h3>STAFF ACCESS</h3>' +
+      '<div style="display:flex;gap:8px"><input id="si-email" placeholder="staff@email.com" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:13px;padding:9px 11px;outline:none">' +
+      '<button class="btn btn-o" onclick="inviteStaff()">INVITE</button></div><div style="margin-top:12px">';
+    staff.forEach(function(s){
+      var isMe = s.user_id === STAFF_ID;
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">' +
+        '<span style="flex:1">👤 '+esc(s.full_name||s.email||'(no name)')+' <span class="muted" style="font-family:var(--mono);font-size:9px">'+esc(s.email||'')+(isMe?' · YOU':'')+'</span></span>' +
+        (isMe ? '' : '<button class="btn btn-g" style="color:var(--red)" onclick="removeStaff(\''+s.user_id+'\')">REMOVE</button>') + '</div>';
+    });
+    invites.forEach(function(i){
+      var link = location.origin + location.pathname + '?invite=' + i.token;
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">' +
+        '<span style="flex:1">'+esc(i.email)+'</span><span class="pill high">PENDING</span>' +
+        '<button class="btn btn-g" onclick="copyText(\''+link+'\',this)">COPY LINK</button>' +
+        '<button class="del" onclick="revokeStaffInvite(\''+i.id+'\')">✕</button></div>';
+    });
+    html += '</div></div>';
+    document.getElementById('main').innerHTML = html;
+  });
+}
+function inviteStaff(){
+  var email = document.getElementById('si-email').value.trim();
+  if (!email || email.indexOf('@')<0) { toast('⚠ NEED VALID EMAIL'); return; }
+  fetch(SUPA_URL + '/rest/v1/staff_invites', { method:'POST', headers:Object.assign(H(),{'Prefer':'return=representation'}),
+    body: JSON.stringify({ email: email }) })
+  .then(function(r){ return r.json(); })
+  .then(function(rows){
+    var link = location.origin + location.pathname + '?invite=' + rows[0].token;
+    navigator.clipboard.writeText(link);
+    toast('✓ INVITE CREATED — LINK COPIED');
+    renderSettings();
+  });
+}
+function revokeStaffInvite(id){
+  if (!confirm('Revoke this invite? The link will stop working.')) return;
+  fetch(SUPA_URL + '/rest/v1/staff_invites?id=eq.'+id, { method:'DELETE', headers:H() })
+  .then(function(){ toast('REVOKED'); renderSettings(); });
+}
+function removeStaff(userId){
+  if (!confirm('Remove this person\'s admin access? They will lose access immediately (their account isn\'t deleted, just unlinked from admin).')) return;
+  fetch(SUPA_URL + '/rest/v1/staff_users?user_id=eq.'+userId, { method:'DELETE', headers:H() })
+  .then(function(){ toast('ACCESS REMOVED'); renderSettings(); });
 }
 
 /* ================= CLIENTS ================= */
