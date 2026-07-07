@@ -7,6 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PptxGenJS/3.12.0/pptxgen.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root { --orange-dim:rgba(249,115,22,0.12); --green-dim:rgba(34,197,94,0.12);
       --bg:#0a0f1e; --card:#111827; --card2:#0f172a; --border:#1e293b; --orange:#f97316;
@@ -28,7 +29,7 @@
     .gate-box input:focus { border-color:var(--orange); }
     .gate-box button { width:100%; margin-top:10px; background:var(--orange); border:none; color:#fff;
       font-weight:700; font-size:14px; padding:13px; border-radius:10px; }
-    .gate-err { color:var(--red); font-size:12px; margin-top:10px; display:none; }
+    .gate-err { color:var(--red); font-size:12px; margin-top:10px; min-height:14px; }
 
     /* ---- SHELL ---- */
     #app { display:none; }
@@ -71,6 +72,20 @@
     .pill.mod  { background:rgba(234,179,8,0.14); color:#facc15; }
     .pill.low  { background:var(--green-dim); color:var(--green); }
     .pill.blue { background:rgba(59,130,246,0.14); color:var(--blue); }
+    .pill.muted { background:var(--card2); color:var(--muted); }
+
+    /* schedule panel */
+    .sch-lvl { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+    .sch-lvl-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .sch-lvl-top b { flex:1; font-size:13px; }
+    .sch-lvl-dates { display:flex; gap:6px; align-items:center; margin-top:8px; }
+    .sch-lvl-dates label { font-family:var(--mono); font-size:9px; color:var(--muted); }
+    .sch-ms { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:12.5px; border-top:1px solid var(--border); margin-top:8px; }
+    .sch-ms .done-t { width:22px; height:22px; border-radius:6px; border:2px solid var(--muted); flex-shrink:0;
+      display:flex; align-items:center; justify-content:center; cursor:pointer; color:transparent; font-size:12px; background:none; }
+    .sch-ms .done-t.y { background:var(--green); border-color:var(--green); color:#fff; }
+    .sch-ms .win { color:var(--orange); }
+    .sch-ci { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); font-size:12.5px; }
     .score-chip { font-family:var(--mono); font-size:12px; }
     .muted { color:var(--muted); }
     .empty { text-align:center; color:var(--muted); padding:50px 0; font-size:14px; }
@@ -166,14 +181,12 @@
 </head>
 <body>
 
-<!-- PASSWORD GATE -->
+<!-- AUTH GATE -->
 <div id="gate">
   <div class="gate-box">
     <h1>STRUCTTECH <span>/</span> OS</h1>
     <p>ADMIN PORTAL</p>
-    <input type="password" id="pw" placeholder="Password" onkeydown="if(event.key==='Enter')unlock()">
-    <button onclick="unlock()">UNLOCK →</button>
-    <div class="gate-err" id="gateErr">Wrong password.</div>
+    <div class="empty">Loading…</div>
   </div>
 </div>
 
@@ -198,10 +211,7 @@
 /* ================= CONFIG ================= */
 var SUPA_URL = 'https://ejlhrykcdfcyeooooodx.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqbGhyeWtjZGZjeWVvb29vb2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NjQ1NjUsImV4cCI6MjA4OTQ0MDU2NX0._bqBaeJtYNaykrzc5rTzuYzgsRYeX3ikzFVrpbv_kr4';
-// SHA-256 of the portal password. Default password: "Bleed$topper2026"
-// To change: run in browser console:
-//   crypto.subtle.digest('SHA-256', new TextEncoder().encode('YourNewPassword')).then(b=>console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')))
-var PW_HASH = 'ad79bdd2863881b5b10c3f746f305befa35b756eaa7b124eb3edd4e10591e177';
+var sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 var ROADMAP_BASE = 'https://audit.structtek.com/roadmap.html';
 
 var Q_LABELS = { q1:'Lead Response', q2:'Estimate Follow-Up', q3:'Field-to-Office', q4:'Job Cost Tracking',
@@ -220,19 +230,65 @@ var STAGES = [
 ];
 
 /* ================= AUTH ================= */
-function sha256(s){ return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
-  .then(function(b){ return [].map.call(new Uint8Array(b), function(x){ return x.toString(16).padStart(2,'0'); }).join(''); }); }
-function unlock(){
-  sha256(document.getElementById('pw').value).then(function(h){
-    if (h === PW_HASH) { sessionStorage.setItem('st_os', h); boot(); }
-    else document.getElementById('gateErr').style.display = 'block';
-  });
+var params = new URLSearchParams(location.search);
+var INVITE = params.get('invite');
+var STAFF_TOKEN = null;
+
+function gateBox(inner){ document.querySelector('#gate .gate-box').innerHTML =
+  '<h1>STRUCTTECH <span>/</span> OS</h1><p>ADMIN PORTAL</p>' + inner; }
+
+async function initAuth(){
+  var s = await sb.auth.getSession();
+  if (INVITE && !s.data.session) return renderStaffInvite();
+  if (!s.data.session) return renderStaffLogin();
+  if (INVITE) {
+    try { await sb.rpc('accept_staff_invite', { p_token: INVITE, p_full_name: null }); history.replaceState({},'', location.pathname); }
+    catch(e){}
+  }
+  var chk = await sb.from('staff_users').select('user_id').eq('user_id', s.data.session.user.id).maybeSingle();
+  if (!chk.data) return renderNotStaff();
+  STAFF_TOKEN = s.data.session.access_token;
+  boot();
 }
-function logout(){ sessionStorage.removeItem('st_os'); location.reload(); }
-if (sessionStorage.getItem('st_os') === PW_HASH) boot();
+sb.auth.onAuthStateChange(function(event, session){ if (session) STAFF_TOKEN = session.access_token; });
+
+function renderStaffLogin(msg){
+  gateBox('<input type="email" id="a-email" placeholder="Email" autocomplete="email">' +
+    '<input type="password" id="a-pw" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')doStaffLogin()">' +
+    '<button onclick="doStaffLogin()">SIGN IN →</button><div class="gate-err">'+(msg||'')+'</div>');
+}
+async function doStaffLogin(){
+  var r = await sb.auth.signInWithPassword({ email: document.getElementById('a-email').value.trim(), password: document.getElementById('a-pw').value });
+  if (r.error) { renderStaffLogin(r.error.message); return; }
+  initAuth();
+}
+function renderStaffInvite(){
+  gateBox('<input type="text" id="a-name" placeholder="Your name" autocomplete="name">' +
+    '<input type="email" id="a-email" placeholder="Email" autocomplete="email">' +
+    '<input type="password" id="a-pw" placeholder="Create a password (8+ characters)" autocomplete="new-password">' +
+    '<button onclick="doStaffSignup()">CREATE ACCOUNT →</button><div class="gate-err" id="a-err"></div>');
+}
+async function doStaffSignup(){
+  var email = document.getElementById('a-email').value.trim();
+  var pw = document.getElementById('a-pw').value;
+  var name = document.getElementById('a-name').value.trim();
+  var r = await sb.auth.signUp({ email: email, password: pw });
+  if (r.error) { document.getElementById('a-err').textContent = r.error.message; return; }
+  if (!r.data.session) { document.getElementById('a-err').textContent = 'Check your email to confirm your account, then return to this link.'; return; }
+  try { await sb.rpc('accept_staff_invite', { p_token: INVITE, p_full_name: name }); }
+  catch(e){ document.getElementById('a-err').textContent = 'Invite error: ' + e.message; return; }
+  history.replaceState({},'', location.pathname);
+  initAuth();
+}
+function renderNotStaff(){
+  gateBox('<div class="empty">This account isn\'t authorized for admin access.<br>Contact another StructTech admin for an invite.</div>' +
+    '<button class="btn btn-g" style="width:100%;margin-top:14px" onclick="logout()">SIGN OUT</button>');
+}
+function logout(){ sb.auth.signOut().then(function(){ location.reload(); }); }
+initAuth();
 
 /* ================= DATA ================= */
-function H(){ return { 'apikey':SUPA_KEY, 'Authorization':'Bearer '+SUPA_KEY, 'Content-Type':'application/json' }; }
+function H(){ return { 'apikey':SUPA_KEY, 'Authorization':'Bearer '+(STAFF_TOKEN||SUPA_KEY), 'Content-Type':'application/json' }; }
 function boot(){
   document.getElementById('gate').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -321,9 +377,14 @@ function renderClientDetail(){
     fetch(SUPA_URL + '/rest/v1/org_systems?org_id=eq.'+o.id+'&order=sort', { headers:H() }).then(function(r){ return r.json(); }),
     fetch(SUPA_URL + '/rest/v1/org_invoices?org_id=eq.'+o.id+'&order=created_at', { headers:H() }).then(function(r){ return r.json(); }),
     fetch(SUPA_URL + '/rest/v1/tickets?org_id=eq.'+o.id+'&order=updated_at.desc', { headers:H() }).then(function(r){ return r.json(); }),
-    fetch(SUPA_URL + '/rest/v1/client_roadmaps?org_id=eq.'+o.id+'&status=eq.active&select=id,token,client_name', { headers:H() }).then(function(r){ return r.json(); })
+    fetch(SUPA_URL + '/rest/v1/client_roadmaps?org_id=eq.'+o.id+'&status=eq.active&select=id,token,client_name', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/engagements?org_id=eq.'+o.id+'&select=*', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/engagement_levels?org_id=eq.'+o.id+'&select=*&order=level_no.asc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/engagement_milestones?org_id=eq.'+o.id+'&select=*&order=sort_order.asc', { headers:H() }).then(function(r){ return r.json(); }),
+    fetch(SUPA_URL + '/rest/v1/engagement_checkins?org_id=eq.'+o.id+'&select=*&order=scheduled_at.asc', { headers:H() }).then(function(r){ return r.json(); })
   ]).then(function(res){
-    orgData = { invites:res[0]||[], members:res[1]||[], systems:res[2]||[], invoices:res[3]||[], tickets:res[4]||[], rms:res[5]||[] };
+    orgData = { invites:res[0]||[], members:res[1]||[], systems:res[2]||[], invoices:res[3]||[], tickets:res[4]||[], rms:res[5]||[],
+      engagement:(res[6]||[])[0]||null, engLevels:res[7]||[], engMilestones:res[8]||[], engCheckins:res[9]||[] };
     var d = orgData;
     var orgDeal = o.deal_id ? deals.find(function(x){ return x.id === o.deal_id; }) : null;
     var orgLead = orgDeal && orgDeal.lead_id ? scans.find(function(s){ return s.id === orgDeal.lead_id; }) : null;
@@ -334,6 +395,8 @@ function renderClientDetail(){
                     : '<button class="btn btn-g" onclick="linkRoadmap()">LINK ROADMAP</button>') +
       (orgDeal ? '<button class="btn btn-g" onclick="showView(\'pipeline\');openDeal(\''+orgDeal.id+'\')">VIEW DEAL</button>' : '') +
       '</div>';
+
+    html += renderSchedulePanel(o, orgDeal, d);
 
     // INVITES + MEMBERS
     html += '<div class="grid2"><div class="panel"><h3>PORTAL ACCESS — INVITE USERS</h3>' +
@@ -465,6 +528,86 @@ function replyTicket(id){
   fetch(SUPA_URL + '/rest/v1/ticket_messages', { method:'POST', headers:H(),
     body: JSON.stringify({ ticket_id: id, author_name: 'Jacob — StructTech', is_structtech: true, content: txt }) })
   .then(function(r){ if(r.ok){ el.value=''; toast('✓ SENT'); } });
+}
+
+/* ================= SCHEDULE (engagement / buildout timeline) ================= */
+var LVL_STATUS_LABEL = { not_started:'NOT STARTED', in_progress:'IN PROGRESS', blocked:'BLOCKED', complete:'COMPLETE' };
+var LVL_STATUS_PILL = { not_started:'muted', in_progress:'blue', blocked:'crit', complete:'low' };
+var CI_STATUS_OPTS = ['scheduled','done','missed','rescheduled'];
+
+function renderSchedulePanel(o, orgDeal, d){
+  var eng = d.engagement;
+  if (!eng) {
+    var canMaterialize = orgDeal && orgDeal.stage === 'closed_won';
+    return '<div class="panel"><h3>SCHEDULE</h3>' +
+      (canMaterialize
+        ? '<button class="btn btn-o" onclick="materializeEngagement(\''+orgDeal.id+'\')">⚡ MATERIALIZE SCHEDULE FROM ROADMAP</button>' +
+          '<div class="muted" style="font-size:11px;margin-top:8px">Builds levels + milestones from this client\'s roadmap so you can set target windows and log check-ins.</div>'
+        : '<div class="muted" style="font-size:12px">No schedule yet — this appears once the deal behind this client is CLOSED WON (it materializes automatically, or use this button to backfill).</div>') +
+      '</div>';
+  }
+
+  var levels = d.engLevels.filter(function(l){ return l.engagement_id === eng.id; });
+  var milestones = d.engMilestones;
+  var checkins = d.engCheckins.filter(function(c){ return c.engagement_id === eng.id; });
+
+  var html = '<div class="panel"><h3>SCHEDULE — ENGAGEMENT</h3>';
+  levels.forEach(function(lvl){
+    var ms = milestones.filter(function(m){ return m.level_id === lvl.id; });
+    html += '<div class="sch-lvl"><div class="sch-lvl-top">' +
+      '<span class="pill '+(LVL_STATUS_PILL[lvl.status]||'muted')+'">L'+lvl.level_no+' · '+(LVL_STATUS_LABEL[lvl.status]||lvl.status)+'</span>' +
+      '<b>'+esc(lvl.title)+'</b>' +
+      '<select onchange="updRow(\'engagement_levels\',\''+lvl.id+'\',{status:this.value})" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:9px;padding:5px">' +
+      ['not_started','in_progress','blocked','complete'].map(function(st){ return '<option value="'+st+'"'+(lvl.status===st?' selected':'')+'>'+LVL_STATUS_LABEL[st]+'</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="sch-lvl-dates">' +
+      '<label>WEEK OF (START)</label><input type="date" value="'+(lvl.planned_start||'')+'" onchange="updRow(\'engagement_levels\',\''+lvl.id+'\',{planned_start:this.value||null})" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px 7px">' +
+      '<label>WEEK OF (END)</label><input type="date" value="'+(lvl.planned_end||'')+'" onchange="updRow(\'engagement_levels\',\''+lvl.id+'\',{planned_end:this.value||null})" style="background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px 7px">' +
+      '</div>';
+    ms.forEach(function(m){
+      html += '<div class="sch-ms"><button class="done-t '+(m.status==='complete'?'y':'')+'" onclick="toggleEngMilestone(\''+m.id+'\','+(m.status!=='complete')+')">✓</button>' +
+        '<span style="flex:1'+(m.status==='complete'?';color:var(--muted);text-decoration:line-through':'')+'">'+esc(m.body)+(m.is_win_condition?' <span class="win">🏆 WIN CONDITION</span>':'')+'</span>' +
+        '<span class="muted" style="font-family:var(--mono);font-size:9px">'+(m.owner==='client'?'CLIENT':'STRUCTTECH')+'</span></div>';
+    });
+    html += '</div>';
+  });
+
+  html += '<h3 style="margin-top:18px">CHECK-INS</h3>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+    '<input id="ci-title" placeholder="Check-in title" style="flex:2;min-width:140px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--white);font-size:12px;padding:8px 10px;outline:none">' +
+    '<input id="ci-when" type="datetime-local" style="background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--gray);font-family:var(--mono);font-size:11px;padding:7px 9px;outline:none">' +
+    '<select id="ci-level" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
+    '<option value="">(no level)</option>' + levels.map(function(l){ return '<option value="'+l.id+'">L'+l.level_no+' — '+esc(l.title)+'</option>'; }).join('') + '</select>' +
+    '<button class="btn btn-o" onclick="addCheckin(\''+eng.id+'\')">ADD</button></div><div style="margin-top:10px">';
+  if (!checkins.length) html += '<div class="muted" style="font-size:12px">None scheduled.</div>';
+  checkins.forEach(function(c){
+    var dte = new Date(c.scheduled_at);
+    html += '<div class="sch-ci"><span style="flex:1">'+esc(c.title)+'</span>' +
+      '<span class="muted" style="font-family:var(--mono);font-size:10px">'+(dte.getMonth()+1)+'/'+dte.getDate()+' '+String(dte.getHours()).padStart(2,'0')+':'+String(dte.getMinutes()).padStart(2,'0')+'</span>' +
+      '<select onchange="updRow(\'engagement_checkins\',\''+c.id+'\',{status:this.value})" style="background:var(--card2);border:1px solid var(--border);border-radius:6px;color:var(--gray);font-family:var(--mono);font-size:10px;padding:5px">' +
+      CI_STATUS_OPTS.map(function(st){ return '<option value="'+st+'"'+(c.status===st?' selected':'')+'>'+st.toUpperCase()+'</option>'; }).join('') + '</select>' +
+      '<button class="del" onclick="delRow(\'engagement_checkins\',\''+c.id+'\')">✕</button></div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+function materializeEngagement(dealId){
+  fetch(SUPA_URL + '/rest/v1/rpc/create_engagement_from_roadmap', { method:'POST', headers:H(), body: JSON.stringify({ p_deal_id: dealId }) })
+    .then(function(r){ if (r.ok) { toast('✓ SCHEDULE MATERIALIZED'); renderClientDetail(); } else toast('⚠ FAILED — check roadmap exists'); });
+}
+function toggleEngMilestone(id, done){
+  fetch(SUPA_URL + '/rest/v1/engagement_milestones?id=eq.'+id, { method:'PATCH', headers:H(),
+    body: JSON.stringify({ status: done ? 'complete' : 'open', completed_at: done ? new Date().toISOString() : null }) })
+    .then(function(r){ toast(r.ok?'✓ SAVED':'⚠ FAILED'); renderClientDetail(); });
+}
+function addCheckin(engagementId){
+  var title = document.getElementById('ci-title').value.trim();
+  var when = document.getElementById('ci-when').value;
+  if (!title || !when) { toast('⚠ NEED TITLE + DATE'); return; }
+  var levelId = document.getElementById('ci-level').value || null;
+  fetch(SUPA_URL + '/rest/v1/engagement_checkins', { method:'POST', headers:H(),
+    body: JSON.stringify({ engagement_id: engagementId, level_id: levelId, title: title, scheduled_at: new Date(when).toISOString() }) })
+    .then(function(r){ toast(r.ok?'✓ CHECK-IN ADDED':'⚠ FAILED'); renderClientDetail(); });
 }
 
 /* ================= PIPELINE ================= */
